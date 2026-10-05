@@ -1,0 +1,224 @@
+
+=============== PROBE 1 - same billable request twice, one Idempotency-Key ===============
+--- first request
+HTTP 201
+{
+  "idempotency_key": "p1-1791170115",
+  "completion": "[simulated completion for a 5-character prompt]",
+  "metered": {
+    "api_calls": 1,
+    "ai_tokens": 600,
+    "token_breakdown": {
+      "input_tokens": 500,
+      "cached_input_tokens": 0,
+      "fresh_input_tokens": 500,
+      "output_tokens": 100,
+      "reasoning_tokens": 0
+    }
+  },
+  "cost": {
+    "api_call_pico_usd": 1000000000,
+    "ai_tokens_pico_usd": 400000000,
+    "total_pico_usd": 1400000000,
+    "total_display": "$0.001400"
+  },
+  "usage_after": {
+    "period": "2026-10",
+    "api_calls": {
+      "used": 1,
+      "limit": 1000,
+      "remaining": 999,
+      "percent": 0.1
+    },
+    "ai_tokens": {
+      "used": 600,
+      "limit": 100000,
+      "remaining": 99400,
+      "percent": 0.6
+    }
+  },
+  "event_ids": [
+    2,
+    3
+  ],
+  "recorded_at": "2026-10-05T03:15:16.126830+00:00"
+}
+--- retry, same key
+HTTP 201
+idempotent-replayed: true
+{
+  "idempotency_key": "p1-1791170115",
+  "completion": "[simulated completion for a 5-character prompt]",
+  "metered": {
+    "api_calls": 1,
+    "ai_tokens": 600,
+    "token_breakdown": {
+      "input_tokens": 500,
+      "cached_input_tokens": 0,
+      "fresh_input_tokens": 500,
+      "output_tokens": 100,
+      "reasoning_tokens": 0
+    }
+  },
+  "cost": {
+    "api_call_pico_usd": 1000000000,
+    "ai_tokens_pico_usd": 400000000,
+    "total_pico_usd": 1400000000,
+    "total_display": "$0.001400"
+  },
+  "usage_after": {
+    "period": "2026-10",
+    "api_calls": {
+      "used": 1,
+      "limit": 1000,
+      "remaining": 999,
+      "percent": 0.1
+    },
+    "ai_tokens": {
+      "used": 600,
+      "limit": 100000,
+      "remaining": 99400,
+      "percent": 0.6
+    }
+  },
+  "event_ids": [
+    2,
+    3
+  ],
+  "recorded_at": "2026-10-05T03:15:16.126830+00:00"
+}
+--- usage after both
+api_calls used = 1
+
+=============== PROBE 2 - drive a tenant to its exact quota ===============
+--- one request for exactly the Free token quota (100,000 tokens)
+HTTP 201
+{
+  "idempotency_key": "p2-fill-1791170115",
+  "completion": "[simulated completion for a 1-character prompt]",
+  "metered": {
+    "api_calls": 1,
+    "ai_tokens": 100000,
+    "token_breakdown": {
+      "input_tokens": 100000,
+      "cached_input_tokens": 0,
+      "fresh_input_tokens": 100000,
+      "output_tokens": 0,
+      "reasoning_tokens": 0
+    }
+  },
+  "cost": {
+    "api_call_pico_usd": 1000000000,
+    "ai_tokens_pico_usd": 30000000000,
+    "total_pico_usd": 31000000000,
+    "total_display": "$0.031000"
+  },
+  "usage_after": {
+    "period": "2026-10",
+    "api_calls": {
+      "used": 1,
+      "limit": 1000,
+      "remaining": 999,
+      "percent": 0.1
+    },
+    "ai_tokens": {
+      "used": 100000,
+      "limit": 100000,
+      "remaining": 0,
+      "percent": 100.0
+    }
+  },
+  "event_ids": [
+    4,
+    5
+  ],
+  "recorded_at": "2026-10-05T03:15:16.546964+00:00"
+}
+--- one more token after the boundary
+HTTP 402
+{
+  "error": {
+    "code": "quota_exceeded_upgrade_required",
+    "message": "This request needs 1 AI token but your Free plan has 0 of 100,000 left this month. Upgrade to Pro (POST /billing/checkout) to continue now, or wait for the reset.",
+    "metric": "ai_tokens",
+    "used": 100000,
+    "requested": 1,
+    "limit": 100000,
+    "remaining": 0,
+    "plan": "free",
+    "resets_at": "2026-11-01T00:00:00+00:00",
+    "upgrade": "/billing/checkout"
+  }
+}
+--- background job: the fill crossed 80% and 100%; waiting for the worker
+[
+  {
+    "metric": "ai_tokens",
+    "threshold": 80,
+    "period": "2026-10",
+    "message": "You have reached 80% of your Free plan's monthly AI tokens for 2026-10. Current usage: 100,000 of 100,000.",
+    "created_at": "2026-10-05T03:15:16.905223+00:00"
+  },
+  {
+    "metric": "ai_tokens",
+    "threshold": 100,
+    "period": "2026-10",
+    "message": "You have reached 100% of your Free plan's monthly AI tokens for 2026-10. Current usage: 100,000 of 100,000.",
+    "created_at": "2026-10-05T03:15:16.940160+00:00"
+  }
+]
+
+=============== PROBE 3 - checkout webhook flips Free -> Pro; /usage shows new limits ===============
+--- before
+plan=free api_calls_limit=1000 ai_tokens_limit=100000
+--- signed checkout.session.completed
+{"status":"processed","event_id":"evt_p3_1791170115","type":"checkout.session.completed","result":"tenant_upgraded_to_pro"}
+HTTP 200
+--- after
+plan=pro status=active api_calls_limit=50000 ai_tokens_limit=5000000
+
+=============== PROBE 4 - forged webhook -> 400; real event replayed twice -> processed once ===============
+--- forged (signed with the wrong secret)
+{"error":{"code":"invalid_signature","message":"Webhook signature verification failed."}}
+HTTP 400
+plan after forgery = free
+--- real event, delivery 1
+{"status":"processed","event_id":"evt_p4_1791170115","type":"checkout.session.completed","result":"tenant_upgraded_to_pro"}
+HTTP 200
+--- real event, delivery 2 (replay)
+{"status":"duplicate_ignored","event_id":"evt_p4_1791170115","type":"checkout.session.completed"}
+HTTP 200
+
+=============== PROBE 5 - pinned pricing rules: cached input + reasoning tokens ===============
+input 10,000 (4,000 cached) + output 2,000 + reasoning 3,000
+expected: fresh 6,000x300,000 + cached 4,000x75,000 + (2,000+3,000)x2,500,000
+        = 14,600,000,000 pico-USD tokens + 1,000,000,000 call = 15,600,000,000 ($0.015600)
+--- POST /generate: metered + cost
+{
+  "metered": {
+    "api_calls": 1,
+    "ai_tokens": 15000,
+    "token_breakdown": {
+      "input_tokens": 10000,
+      "cached_input_tokens": 4000,
+      "fresh_input_tokens": 6000,
+      "output_tokens": 2000,
+      "reasoning_tokens": 3000
+    }
+  },
+  "cost": {
+    "api_call_pico_usd": 1000000000,
+    "ai_tokens_pico_usd": 14600000000,
+    "total_pico_usd": 15600000000,
+    "total_display": "$0.015600"
+  }
+}
+--- GET /usage: cost block must match
+{
+  "api_calls_pico_usd": 1000000000,
+  "ai_tokens_pico_usd": 14600000000,
+  "total_pico_usd": 15600000000,
+  "total_micro_usd": 15600,
+  "total_cents": 2,
+  "total_display": "$0.015600"
+}
