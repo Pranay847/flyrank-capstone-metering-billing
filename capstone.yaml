@@ -1,0 +1,62 @@
+name: flyrank-capstone-metering-billing
+track: backend
+stack: python-fastapi-postgres
+
+run: docker compose up --build
+seed: docker compose exec api python -m app.seed
+test: docker compose exec api pytest -q
+base_url: http://localhost:8000
+
+# Seeded tenants (python -m app.seed):
+#   demo-free-key      Free, empty
+#   demo-pro-key       Pro, active subscription
+#   demo-boundary-key  Free, 998/1,000 API calls used
+# Admin token for POST /tenants defaults to dev-admin-token (ADMIN_TOKEN in .env).
+
+endpoints:
+  - method: GET
+    path: /health
+    expect: 200
+  - method: GET
+    path: /plans
+    expect: 200
+  - method: POST
+    path: /tenants
+    headers: { X-Admin-Token: dev-admin-token }
+    body: { name: "Probe Tenant" }
+    expect: 201
+  - method: GET
+    path: /usage
+    headers: { X-API-Key: demo-free-key }
+    expect: 200
+  - method: POST
+    path: /generate
+    headers: { X-API-Key: demo-free-key, Idempotency-Key: probe-1 }
+    body: { prompt: "hello" }
+    expect: 201          # repeat with the same key -> 201 + Idempotent-Replayed: true, one event
+  - method: POST
+    path: /generate
+    headers: { X-API-Key: demo-free-key }
+    body: { prompt: "hello" }
+    expect: 400          # missing Idempotency-Key
+  - method: POST
+    path: /generate
+    headers: { X-API-Key: demo-free-key, Idempotency-Key: probe-bad }
+    body: { prompt: "x", usage: { input_tokens: -1, output_tokens: 0 } }
+    expect: 422
+  - method: GET
+    path: /notifications
+    headers: { X-API-Key: demo-free-key }
+    expect: 200
+  - method: POST
+    path: /billing/checkout
+    headers: { X-API-Key: demo-free-key }
+    expect: 200          # 503 with a clear message if Stripe keys are not configured
+  - method: POST
+    path: /webhooks/stripe
+    headers: { Stripe-Signature: "t=1,v1=forged" }
+    body: { id: evt_forged, type: checkout.session.completed }
+    expect: 400
+
+# Under docker compose with no .env: ADMIN_TOKEN=dev-admin-token, WEBHOOK_SECRET=whsec_dev_local_only
+probes: BASE_URL=http://localhost:8000 ADMIN_TOKEN=dev-admin-token WEBHOOK_SECRET=whsec_dev_local_only bash scripts/probes.sh

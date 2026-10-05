@@ -22,6 +22,9 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg2://billing:billing@db:5432/billing
       ADMIN_TOKEN: ${ADMIN_TOKEN:-dev-admin-token}
+      # Placeholder so webhook verification is active out of the box (forged -> 400).
+      # Your real whsec_ from `stripe listen` in .env takes precedence.
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-whsec_dev_local_only}
     ports:
       - "8000:8000"
     depends_on:
