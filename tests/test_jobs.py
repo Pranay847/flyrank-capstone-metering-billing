@@ -29,7 +29,8 @@ def test_crossing_80_percent_enqueues_one_alert_job(client):
     notes = client.get("/notifications", headers={"X-API-Key": key}).json()
     assert len(notes) == 1
     assert notes[0]["threshold"] == 80 and notes[0]["metric"] == "api_calls"
-    assert "80%" in notes[0]["message"] and "800 of 1,000" in notes[0]["message"]
+    assert "reached 80%" in notes[0]["message"] and "800 of 1,000" in notes[0]["message"]
+    assert notes[0]["created_at"].endswith("+00:00")          # always UTC
 
 
 def test_one_request_crossing_both_thresholds_enqueues_two(client):
