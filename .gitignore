@@ -1,0 +1,12 @@
+# secrets — never committed
+.env
+
+# local databases
+*.db
+*.db-journal
+
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
