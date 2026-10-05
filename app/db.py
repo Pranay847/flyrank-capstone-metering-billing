@@ -23,6 +23,8 @@ def init_engine(url: str | None = None) -> Engine:
     kwargs: dict = {"future": True, "pool_pre_ping": True}
     if url.startswith("sqlite"):
         kwargs["connect_args"] = {"check_same_thread": False, "timeout": 30}
+    elif url.startswith("postgresql"):
+        kwargs["connect_args"] = {"options": "-c timezone=UTC"}  # timestamps come back in UTC
     _engine = create_engine(url, **kwargs)
     _SessionLocal = sessionmaker(bind=_engine, expire_on_commit=False, future=True)
     return _engine

@@ -16,6 +16,12 @@ def freeze(at: datetime | None) -> None:
     _frozen = at
 
 
+def as_utc(at: datetime) -> datetime:
+    """Normalise a stored timestamp to UTC. SQLite hands back naive datetimes; they
+    were written as UTC, so tag them rather than guessing a local zone."""
+    return at.replace(tzinfo=timezone.utc) if at.tzinfo is None else at.astimezone(timezone.utc)
+
+
 def period_of(at: datetime) -> str:
     """Billing period key: calendar month in UTC, e.g. '2026-10'."""
     return at.strftime("%Y-%m")

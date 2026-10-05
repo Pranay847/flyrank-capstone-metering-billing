@@ -143,7 +143,8 @@ def notifications(tenant: Tenant = Depends(current_tenant), db: Session = Depend
         select(Notification).where(Notification.tenant_id == tenant.id).order_by(Notification.id)
     ).scalars().all()
     return [{"metric": n.metric, "threshold": n.threshold, "period": n.period,
-             "message": n.message, "created_at": n.created_at.isoformat()} for n in rows]
+             "message": n.message, "created_at": clock.as_utc(n.created_at).isoformat()}
+            for n in rows]
 
 
 # --- Stripe (test mode) -------------------------------------------------------

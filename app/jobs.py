@@ -140,8 +140,10 @@ def usage_threshold_alert(db: Session, p: dict) -> None:
     """Tell a tenant they reached 80% / 100% of a quota. Idempotent: the unique
     constraint means a retried job never sends the same alert twice."""
     label = "API calls" if p["metric"] == "api_calls" else "AI tokens"
-    message = (f"You have used {p['threshold']}% of your {p['plan_name']} plan's monthly "
-               f"{label} ({p['used']:,} of {p['limit']:,}) for {p['period']}.")
+    # One request can cross 80% and 100% at once, so state the threshold reached and
+    # the actual usage separately rather than implying usage == threshold.
+    message = (f"You have reached {p['threshold']}% of your {p['plan_name']} plan's monthly "
+               f"{label} for {p['period']}. Current usage: {p['used']:,} of {p['limit']:,}.")
     db.add(Notification(tenant_id=p["tenant_id"], metric=p["metric"], threshold=p["threshold"],
                         period=p["period"], message=message, created_at=clock.now()))
     try:
