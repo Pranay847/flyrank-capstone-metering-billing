@@ -14,8 +14,9 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
-from . import clock, jobs, metering
+from . import billing, clock, jobs, metering
 from .auth import current_tenant, hash_key, new_api_key, require_admin
 from .config import get_settings
 from .db import get_db
@@ -143,3 +144,30 @@ def notifications(tenant: Tenant = Depends(current_tenant), db: Session = Depend
     ).scalars().all()
     return [{"metric": n.metric, "threshold": n.threshold, "period": n.period,
              "message": n.message, "created_at": n.created_at.isoformat()} for n in rows]
+
+
+# --- Stripe (test mode) -------------------------------------------------------
+
+@app.post("/billing/checkout")
+def checkout(tenant: Tenant = Depends(current_tenant)):
+    """Start the Free -> Pro upgrade. Returns a Stripe-hosted Checkout URL; the plan
+    only changes when Stripe's signed webhook confirms the subscription."""
+    return billing.create_checkout_session(tenant)
+
+
+@app.get("/billing/success")
+def checkout_success(session_id: str = ""):
+    return {"status": "checkout_complete", "session_id": session_id,
+            "note": "Your plan updates as soon as Stripe's webhook arrives — check GET /usage."}
+
+
+@app.get("/billing/cancel")
+def checkout_cancel():
+    return {"status": "checkout_canceled", "note": "No charge was made. Your plan is unchanged."}
+
+
+@app.post("/webhooks/stripe")
+async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
+    payload = await request.body()  # RAW bytes: the signature covers the exact body
+    sig = request.headers.get("Stripe-Signature")
+    return await run_in_threadpool(billing.handle_webhook, db, payload, sig)
