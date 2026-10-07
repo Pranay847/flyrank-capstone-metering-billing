@@ -72,3 +72,22 @@ def test_round_half_up():
     assert P.round_half_up(5, 10) == 1
     assert P.round_half_up(15, 10) == 2
     assert P.pico_to_cents(5_000_000_000) == 1  # half a cent rounds up
+
+
+@pytest.mark.parametrize("num,den", [(-1, 10), (5, 0), (5, -10)])
+def test_round_half_up_rejects_bad_inputs(num, den):
+    with pytest.raises(ValueError):
+        P.round_half_up(num, den)
+
+
+def test_api_call_cost_is_linear_per_call():
+    assert P.api_call_cost_pico(0) == 0
+    assert P.api_call_cost_pico(1_000) == P.PICO_PER_USD   # 1,000 calls = $1.00
+
+
+def test_format_usd_carries_whole_dollars_and_rounds_half_up():
+    assert P.format_usd(0) == "$0.000000"
+    assert P.format_usd(12 * P.PICO_PER_USD + 345_678 * P.PICO_PER_MICRO) == "$12.345678"
+    assert P.format_usd(P.PICO_PER_MICRO // 2) == "$0.000001"       # half a micro rounds up
+    assert P.format_usd(P.PICO_PER_MICRO // 2 - 1) == "$0.000000"
+    assert P.format_usd(P.PICO_PER_USD - 1) == "$1.000000"          # carries into the dollar
